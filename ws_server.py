@@ -23,6 +23,11 @@ ETH2_API = cfg["eth2_api"]
 # Optional graffiti to serve in the HTTP JSON response
 WS_SERVER_GRAFFITI = cfg["ws_server_graffiti"]
 
+class Checkpoint:
+    def __init__(self, root = None, epoch = None):
+        self.epoch = epoch
+        self.root = root
+
 def query_eth2_api(endpoint):
     url = ETH2_API + endpoint
     response = httpx.get(url, timeout=None)
@@ -46,18 +51,12 @@ def get_current_epoch():
     return compute_epoch_at_slot(int(current_slot))
 
 
-def get_finalized_checkpoint(checkpoint = None):
-    finality_checkpoints = None
-    if checkpoint is not None:
-        checkpointEpoch = checkpoint.split(":")[1]
-        finality_checkpoints = query_eth2_api(
-            f'/eth/v1/beacon/states/{checkpointEpoch}/finality_checkpoints'
-            )
-    else:
-        finality_checkpoints = query_eth2_api(
-            '/eth/v1/beacon/states/finalized/finality_checkpoints'
-            )
+def get_finalized_checkpoint():
+    finality_checkpoints = query_eth2_api(
+        '/eth/v1/beacon/states/finalized/finality_checkpoints'
+        )
     finalized_checkpoint = finality_checkpoints["data"]["finalized"]
+    logging.info(f'finalized_checkpoint: {finalized_checkpoint}')
     return finalized_checkpoint
 
 
@@ -139,36 +138,34 @@ def compute_weak_subjectivity_period(active_validator_count,
     return int(ws_period)
 
 
-def atomic_get_finalized_checkpoint_and_validator_info(checkpoint = None):
-    finalized_checkpoint = get_finalized_checkpoint(checkpoint)
+def atomic_get_finalized_checkpoint_and_validator_info():
+    finalized_checkpoint = get_finalized_checkpoint()
     finalized_epoch = int(finalized_checkpoint["epoch"])
     active_validator_count = get_active_validator_count_at_finalized()
     avg_validator_balance = get_avg_validator_balance_at_finalized()
     # Re-check finalized_checkpoint to see if it changed between the last two
     # API calls
-    now_finalized_checkpoint = get_finalized_checkpoint(checkpoint)
+    now_finalized_checkpoint = get_finalized_checkpoint()
     now_finalized_epoch = int(now_finalized_checkpoint["epoch"])
     if now_finalized_epoch != finalized_epoch:
         return atomic_get_finalized_checkpoint_and_validator_info()
-
     return finalized_checkpoint, active_validator_count, avg_validator_balance
 
 # if user does not pass in `checkpoint`, we default to fetching the latest finalized weak subjectivity state/checkpoint
-def get_ws_data(checkpoint = None):
+def get_ws_data(checkpoint: Checkpoint):
     logging.info(f'Fetching weak subjectivity data from {ETH2_API}')
     finalized_checkpoint, active_validator_count, avg_validator_balance = \
         atomic_get_finalized_checkpoint_and_validator_info()
+    
     finalized_epoch = None
     finalized_block_root = None
-    if checkpoint is None:
+    if checkpoint.epoch is None:
         finalized_epoch = int(finalized_checkpoint["epoch"])
         finalized_block_root = finalized_checkpoint["root"]
     else:
-        # TODO: validate checkpointData
-        checkpointData = checkpoint.split(":")
-        logging.info(f"checkpointData: {checkpointData}")
-        finalized_epoch = int(checkpointData[1])
-        finalized_block_root = checkpointData[0]
+        finalized_epoch = checkpoint.epoch
+        finalized_block_root = checkpoint.root
+        
     logging.debug(f'Got data from {ETH2_API} - '
                   'finalized epoch: {finalized_epoch}, '
                   'active val. count: {active_validator_count}, '
@@ -176,9 +173,15 @@ def get_ws_data(checkpoint = None):
     ws_period = compute_weak_subjectivity_period(active_validator_count,
                                                  avg_validator_balance)
     logging.debug(f"Computed WS period: {ws_period}")
-    ws_state = query_eth2_api(
-        f'/eth/v1/debug/beacon/states/{finalized_epoch * 32}'
-    )
+    ws_state = None
+    if checkpoint.epoch is not None:
+        ws_state = query_eth2_api(
+            f'/eth/v1/debug/beacon/states/{checkpoint.epoch * 32}'
+        )
+    else:
+        ws_state = query_eth2_api(
+            f'/eth/v1/debug/beacon/states/finalized'
+        )
     ws_data = {
         "finalized_epoch": finalized_epoch,
         "ws_checkpoint": f'{finalized_block_root}:{finalized_epoch}',
@@ -188,7 +191,7 @@ def get_ws_data(checkpoint = None):
     return ws_data
 
 
-def prepare_response(checkpoint):
+def prepare_response(checkpoint: Checkpoint):
     ws_data = get_ws_data(checkpoint)
     current_epoch = get_current_epoch()
     current_epoch_in_ws_period = (
@@ -218,4 +221,7 @@ app = Flask(__name__)
 @app.route('/')
 def serve_ws_data():
     checkpoint = request.args.get('checkpoint')
-    return jsonify(prepare_response(checkpoint))
+    if checkpoint is not None:
+        checkpointData = checkpoint.split(":")
+        return jsonify(prepare_response(Checkpoint(checkpointData[0], int(checkpointData[1]))))
+    return jsonify(prepare_response(Checkpoint()))
