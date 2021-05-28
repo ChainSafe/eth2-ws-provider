@@ -23,7 +23,6 @@ ETH2_API = cfg["eth2_api"]
 # Optional graffiti to serve in the HTTP JSON response
 WS_SERVER_GRAFFITI = cfg["ws_server_graffiti"]
 
-
 def query_eth2_api(endpoint):
     url = ETH2_API + endpoint
     response = httpx.get(url, timeout=None)
@@ -47,10 +46,17 @@ def get_current_epoch():
     return compute_epoch_at_slot(int(current_slot))
 
 
-def get_finalized_checkpoint():
-    finality_checkpoints = query_eth2_api(
-        '/eth/v1/beacon/states/head/finality_checkpoints'
-        )
+def get_finalized_checkpoint(checkpoint = None):
+    finality_checkpoints = None
+    if checkpoint is not None:
+        checkpointEpoch = checkpoint.split(":")[1]
+        finality_checkpoints = query_eth2_api(
+            f'/eth/v1/beacon/states/{checkpointEpoch}/finality_checkpoints'
+            )
+    else:
+        finality_checkpoints = query_eth2_api(
+            '/eth/v1/beacon/states/finalized/finality_checkpoints'
+            )
     finalized_checkpoint = finality_checkpoints["data"]["finalized"]
     return finalized_checkpoint
 
@@ -76,7 +82,7 @@ def get_active_validator_count_at_state(state_id):
 
 
 def get_active_validator_count_at_finalized():
-    return get_active_validator_count_at_state("head")
+    return get_active_validator_count_at_state("finalized")
 
 
 def get_avg_validator_balance_at_state(state_id):
@@ -91,7 +97,7 @@ def get_avg_validator_balance_at_state(state_id):
 
 
 def get_avg_validator_balance_at_finalized():
-    return get_avg_validator_balance_at_state("head")
+    return get_avg_validator_balance_at_state("finalized")
 
 
 def compute_validator_churn_limit(active_validator_count):
@@ -133,21 +139,21 @@ def compute_weak_subjectivity_period(active_validator_count,
     return int(ws_period)
 
 
-def atomic_get_finalized_checkpoint_and_validator_info():
-    finalized_checkpoint = get_finalized_checkpoint()
+def atomic_get_finalized_checkpoint_and_validator_info(checkpoint = None):
+    finalized_checkpoint = get_finalized_checkpoint(checkpoint)
     finalized_epoch = int(finalized_checkpoint["epoch"])
     active_validator_count = get_active_validator_count_at_finalized()
     avg_validator_balance = get_avg_validator_balance_at_finalized()
     # Re-check finalized_checkpoint to see if it changed between the last two
     # API calls
-    now_finalized_checkpoint = get_finalized_checkpoint()
+    now_finalized_checkpoint = get_finalized_checkpoint(checkpoint)
     now_finalized_epoch = int(now_finalized_checkpoint["epoch"])
     if now_finalized_epoch != finalized_epoch:
         return atomic_get_finalized_checkpoint_and_validator_info()
 
     return finalized_checkpoint, active_validator_count, avg_validator_balance
 
-
+# if user does not pass in `checkpoint`, we default to fetching the latest finalized weak subjectivity state/checkpoint
 def get_ws_data(checkpoint = None):
     logging.info(f'Fetching weak subjectivity data from {ETH2_API}')
     finalized_checkpoint, active_validator_count, avg_validator_balance = \
