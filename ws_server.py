@@ -173,15 +173,9 @@ def get_ws_data(checkpoint: Checkpoint):
     ws_period = compute_weak_subjectivity_period(active_validator_count,
                                                  avg_validator_balance)
     logging.debug(f"Computed WS period: {ws_period}")
-    ws_state = None
-    if checkpoint.epoch is not None:
-        ws_state = query_eth2_api(
-            f'/eth/v1/debug/beacon/states/{checkpoint.epoch * 32}'
-        )
-    else:
-        ws_state = query_eth2_api(
-            f'/eth/v1/debug/beacon/states/finalized'
-        )
+    ws_state = query_eth2_api(
+        f'/eth/v1/debug/beacon/states/{finalized_epoch * 32}'
+    )
     ws_data = {
         "finalized_epoch": finalized_epoch,
         "ws_checkpoint": f'{finalized_block_root}:{finalized_epoch}',
