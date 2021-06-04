@@ -5,14 +5,23 @@ services:
     image: "redis"
     ports:
       - 6379
+    networks:
+      - lodestar_default
   eth2_ws_server:
     build:
       context: .
       dockerfile: Dockerfile
     image: "eth2_ws_server"
+    networks:
+      - lodestar_default
     volumes:
       - .:/app
     depends_on:
       - redis
     ports:
-      - "0.0.0.0:80:80"
+      - "0.0.0.0:8081:8081"
+
+networks:
+  # NOTE: this assumes that the user has already greated the ws_network and has also confiured the lodestar docker-compose.yml to use the same network
+  lodestar_default:
+    external: true
