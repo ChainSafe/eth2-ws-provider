@@ -6,14 +6,14 @@ services:
     ports:
       - 6379
     networks:
-      - ws_network
+      - lodestar_default
   eth2_ws_server:
     build:
       context: .
       dockerfile: Dockerfile
     image: "eth2_ws_server"
     networks:
-      - ws_network
+      - lodestar_default
     volumes:
       - .:/app
     depends_on:
@@ -23,5 +23,5 @@ services:
 
 networks:
   # NOTE: this assumes that the user has already greated the ws_network and has also confiured the lodestar docker-compose.yml to use the same network
-  ws_network:
+  lodestar_default:
     external: true
