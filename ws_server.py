@@ -53,7 +53,7 @@ def get_current_epoch():
 
 def get_finalized_checkpoint():
     finality_checkpoints = query_eth2_api(
-        '/eth/v1/beacon/states/finalized/finality_checkpoints'
+        '/eth/v1/beacon/states/head/finality_checkpoints'
         )
     finalized_checkpoint = finality_checkpoints["data"]["finalized"]
     logging.info(f'finalized_checkpoint: {finalized_checkpoint}')
